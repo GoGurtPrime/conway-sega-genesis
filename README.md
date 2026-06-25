@@ -21,7 +21,7 @@ element reaches the screen, it will not move off of the screen.
 
 ## Building
 
-As previously mentioned, this project was built using the SGDK. In order to build
+As previously mentioned, this project was built using the [SGDK](https://github.com/Stephane-D/SGDK). In order to build
 this project, you must first follow the steps to set up the SGDK.
 
 Once you have the SGDK compiled on your system, you can build the project by 

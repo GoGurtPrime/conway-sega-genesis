@@ -10,6 +10,7 @@ free to post an issue on this repository and I will try to fix it.
 ## Controls
 
 A / B / C - Toggle the fill of a cell
+
 Start - Pause or Resume simulation
 
 ## Game notes

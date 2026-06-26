@@ -90,6 +90,78 @@ static u16 cursor_y;                   // cursor row     [0, GRID_H)
 static u8  running;                    // 1 = simulation running, 0 = paused
 static u8  in_menu;                    // 1 = showing main menu, 0 = in game
 
+// ---------------------------------------------------------------------------
+// SRAM layout
+//   Offset 0   : u16 magic number  (0xC0DE = valid save present)
+//   Offset 2   : u8  grid[GRID_W][GRID_H]  (40*28 = 1120 bytes, column-major)
+//   Total      : 1122 bytes (well within the 8KB minimum Genesis SRAM)
+//
+// The magic number lets us detect a blank/uninitialised SRAM on first boot
+// so we never hydrate the grid with garbage data.
+// ---------------------------------------------------------------------------
+#define SRAM_MAGIC          0xC0DE
+#define SRAM_OFFSET_MAGIC   0                               // u16 → 2 bytes
+#define SRAM_OFFSET_GRID    2                               // u8[GRID_W*GRID_H]
+
+// Save the current grid to SRAM.
+// Called on pause and on each cell toggle.
+static void sram_save(void)
+{
+    u16 x, y;
+    u16 offset;
+
+    SRAM_enable();
+
+    // Write magic number so we know this save slot is valid
+    SRAM_writeWord(SRAM_OFFSET_MAGIC, SRAM_MAGIC);
+
+    // Write grid column-major (matching grid[x][y] memory layout)
+    offset = SRAM_OFFSET_GRID;
+    for (x = 0; x < GRID_W; x++)
+    {
+        for (y = 0; y < GRID_H; y++)
+        {
+            SRAM_writeByte(offset, grid[x][y]);
+            offset++;
+        }
+    }
+
+    SRAM_disable();
+}
+
+// Load the grid from SRAM.
+// Returns 1 if a valid save was found and loaded, 0 if SRAM was blank/invalid.
+static u8 sram_load(void)
+{
+    u16 x, y;
+    u16 offset;
+    u16 magic;
+
+    SRAM_enable();
+    magic = SRAM_readWord(SRAM_OFFSET_MAGIC);
+    SRAM_disable();
+
+    if (magic != SRAM_MAGIC)
+        return 0;   // no valid save — leave grid as-is
+
+    SRAM_enable();
+
+    offset = SRAM_OFFSET_GRID;
+    for (x = 0; x < GRID_W; x++)
+    {
+        for (y = 0; y < GRID_H; y++)
+        {
+            // Mask to 1-bit so corrupt SRAM bytes can't break simulation logic
+            grid[x][y] = SRAM_readByte(offset) & 1;
+            offset++;
+        }
+    }
+
+    SRAM_disable();
+    return 1;
+}
+
+// ---------------------------------------------------------------------------
 // Flags set by the joypad callback, consumed in the main loop
 static volatile u8 flag_start;
 static volatile u8 flag_toggle_cell;
@@ -353,6 +425,12 @@ int main(u16 hard)
                 // First Start press: dismiss the menu permanently and enter the game
                 in_menu = 0;
                 VDP_clearPlane(BG_A, TRUE);   // wipe all menu text; game runs on BG_B
+
+                // Hydrate grid from SRAM if a valid save exists
+                sram_load();
+
+                // Repaint full grid (may have changed after SRAM load)
+                draw_all();
                 draw_cell(cursor_x, cursor_y); // show cursor on the now-visible grid
             }
             else
@@ -370,6 +448,9 @@ int main(u16 hard)
                 {
                     // Show cursor at current position
                     draw_cell(cursor_x, cursor_y);
+
+                    // Persist grid to SRAM whenever the player pauses
+                    sram_save();
                 }
             }
         }
@@ -416,6 +497,9 @@ int main(u16 hard)
                     flag_toggle_cell = 0;
                     grid[cursor_x][cursor_y] ^= 1;
                     draw_cell(cursor_x, cursor_y);
+
+                    // Persist grid to SRAM after each edit
+                    sram_save();
                 }
             }
             else
